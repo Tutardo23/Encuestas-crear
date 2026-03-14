@@ -1,0 +1,234 @@
+// prisma/schema.prisma — Prisma 7
+// La conexión a la DB se configura en prisma.config.ts (no acá)
+
+generator client {
+  provider = "prisma-client-js"
+  // driverAdapters ya no necesita estar en previewFeatures en Prisma 7
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ===========================
+// USUARIOS / ADMINS
+// ===========================
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  passwordHash  String
+  role          UserRole @default(ADMIN)
+  isActive      Boolean  @default(true)
+
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  lastLoginIp         String?
+
+  surveys  Survey[]
+  sessions Session[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  VIEWER
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ===========================
+// ENCUESTAS
+// ===========================
+model Survey {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  status      SurveyStatus @default(DRAFT)
+
+  allowMultipleResponses Boolean @default(false)
+  showProgressBar        Boolean @default(true)
+  senderName             String  @default("Equipo Torx")
+  emailSubject           String  @default("Te pedimos 2 minutos")
+  thankYouMessage        String  @default("¡Gracias por tu respuesta!")
+
+  startsAt  DateTime?
+  expiresAt DateTime?
+
+  creatorId  String
+  creator    User        @relation(fields: [creatorId], references: [id])
+  questions  Question[]
+  recipients Recipient[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([creatorId])
+  @@index([status])
+}
+
+enum SurveyStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  CLOSED
+}
+
+// ===========================
+// PREGUNTAS
+// ===========================
+model Question {
+  id       String @id @default(cuid())
+  surveyId String
+  survey   Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  type       QuestionType
+  text       String
+  isRequired Boolean      @default(false)
+  order      Int
+
+  minValue Int?
+  maxValue Int?
+  minLabel String?
+  maxLabel String?
+
+  options QuestionOption[]
+  answers Answer[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([surveyId])
+  @@index([surveyId, order])
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  TEXT
+  RATING
+  NPS
+}
+
+model QuestionOption {
+  id         String   @id @default(cuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  order      Int
+  answers    Answer[]
+
+  @@index([questionId])
+}
+
+// ===========================
+// DESTINATARIOS
+// ===========================
+model Recipient {
+  id       String @id @default(cuid())
+  surveyId String
+  survey   Survey @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+
+  email String
+  name  String
+
+  token          String          @unique @default(cuid())
+  tokenExpiresAt DateTime?
+
+  status   RecipientStatus @default(PENDING)
+  sentAt   DateTime?
+  openedAt DateTime?
+
+  response Response?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([surveyId, email])
+  @@index([token])
+  @@index([surveyId])
+}
+
+enum RecipientStatus {
+  PENDING
+  SENT
+  OPENED
+  COMPLETED
+  BOUNCED
+}
+
+// ===========================
+// RESPUESTAS
+// ===========================
+model Response {
+  id          String    @id @default(cuid())
+  recipientId String    @unique
+  recipient   Recipient @relation(fields: [recipientId], references: [id])
+
+  ipHash    String?
+  userAgent String?
+
+  completedAt DateTime @default(now())
+  answers     Answer[]
+
+  @@index([recipientId])
+}
+
+model Answer {
+  id         String   @id @default(cuid())
+  responseId String
+  response   Response @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id])
+
+  textValue        String?
+  numberValue      Int?
+  selectedOptionId String?
+  selectedOption   QuestionOption? @relation(fields: [selectedOptionId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([responseId])
+  @@index([questionId])
+}
+
+// ===========================
+// AUDIT LOG
+// ===========================
+model AuditLog {
+  id       String  @id @default(cuid())
+  userId   String?
+  action   String
+  entity   String?
+  entityId String?
+  metadata Json?
+  ipHash   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
