@@ -1,10 +1,29 @@
 // prisma/seed.ts — Prisma 7
 // Ejecutar: npm run db:seed
 
-/* eslint-disable @typescript-eslint/no-require-imports */
-
+import * as fs from "fs";
+import * as path from "path";
 import bcrypt from "bcryptjs";
 
+// tsx tampoco carga .env.local — lo hacemos manual igual que en prisma.config.ts
+function loadEnvLocal() {
+  const envPath = path.join(process.cwd(), ".env.local");
+  if (!fs.existsSync(envPath)) return;
+  const lines = fs.readFileSync(envPath, "utf-8").split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, "");
+    if (key && !process.env[key]) process.env[key] = val;
+  }
+}
+
+loadEnvLocal();
+
+/* eslint-disable @typescript-eslint/no-require-imports */
 async function main() {
   const connectionString =
     process.env.DATABASE_URL_UNPOOLED ??
