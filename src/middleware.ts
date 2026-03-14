@@ -1,53 +1,53 @@
 // src/middleware.ts
-import { withAuth } from "next-auth/middleware";
-import { NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
+import { NextRequest, NextResponse } from "next/server";
 
-export default withAuth(
-  function middleware(req) {
-    const { pathname } = req.nextUrl;
-    const token = req.nextauth.token;
+// Rutas que NO requieren autenticación
+const PUBLIC_PATHS = [
+  "/login",
+  "/api/auth",
+  "/api/response",
+  "/r/",
+  "/_next",
+  "/favicon.ico",
+];
 
-    // Rutas de admin requieren estar autenticado
-    if (pathname.startsWith("/dashboard") || pathname.startsWith("/surveys") || pathname.startsWith("/analytics")) {
-      if (!token) {
-        return NextResponse.redirect(new URL("/login", req.url));
-      }
-    }
+function isPublic(pathname: string): boolean {
+  return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+}
 
-    // La ruta de encuesta pública /r/[token] es libre — no requiere auth
-    // pero sí pasa por validación de token en la API
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
 
-    const response = NextResponse.next();
-
-    // Agregar headers de seguridad adicionales
-    response.headers.set("X-Content-Type-Options", "nosniff");
-    response.headers.set("X-Frame-Options", "DENY");
-
-    return response;
-  },
-  {
-    callbacks: {
-      authorized: ({ token, req }) => {
-        const { pathname } = req.nextUrl;
-        // Rutas públicas: siempre authorized (el middleware decide qué hacer)
-        if (
-          pathname.startsWith("/r/") ||
-          pathname.startsWith("/login") ||
-          pathname.startsWith("/api/auth") ||
-          pathname.startsWith("/api/response")
-        ) {
-          return true;
-        }
-        // Resto requiere token
-        return !!token;
-      },
-    },
+  // Dejar pasar rutas públicas sin tocarlas
+  if (isPublic(pathname)) {
+    return NextResponse.next();
   }
-);
+
+  // Verificar token JWT de NextAuth
+  const token = await getToken({
+    req,
+    secret: process.env.NEXTAUTH_SECRET,
+  });
+
+  // Sin token → redirigir a login
+  if (!token) {
+    const loginUrl = new URL("/login", req.url);
+    // Guardar la URL original para redirigir después del login
+    loginUrl.searchParams.set("callbackUrl", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  // Con token → agregar headers de seguridad y continuar
+  const response = NextResponse.next();
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("X-Frame-Options", "DENY");
+  return response;
+}
 
 export const config = {
   matcher: [
-    // Aplicar a todas las rutas excepto assets estáticos
-    "/((?!_next/static|_next/image|favicon.ico|public).*)",
+    // Excluir archivos estáticos explícitamente
+    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.png|.*\\.jpg|.*\\.svg).*)",
   ],
 };
